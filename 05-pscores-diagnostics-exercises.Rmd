@@ -1,0 +1,151 @@
+---
+title: "Propensity Score Diagnostics"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(broom)
+library(smd)
+library(causaldata)
+```
+
+Using the National Health and Nutrition Examination Survey Data (`nhefs_complete`), we are interested in the relationship between the **exposure**, `qsmk`: whether the participant quit smoking, and the **outcome**, `wt82_71`: their weight change in kilograms.
+
+Below is the propensity score model and weights you created in the previous exercise.
+
+```{r, eval = FALSE}
+propensity_model <- glm(
+  qsmk ~ age + sex + wt71 + smokeyrs + I(age^2) + I(wt71^2) + I(smokeyrs^2),
+  data = nhefs_complete,
+  family = binomial()
+)
+
+df <- propensity_model %>%
+  augment(type.predict = "response", data = nhefs_complete) %>%
+  mutate(w_ate = 1 / ifelse(qsmk == 0, 1 - .fitted, .fitted))
+```
+
+## Your Turn 1
+
+REFERENCE From 01-whole-game-exercises:
+
+library(smd)
+vars <- c("sex", "race", "age", "education", "smokeintensity", "smokeyrs", 
+          "exercise", "active", "wt71")
+
+plot_df <- nhefs_complete_uc %>% 
+  summarise(
+    across(
+      all_of(vars), 
+      list(
+        unweighted = ~smd(.x, qsmk)$estimate, 
+        weighted = ~smd(.x, qsmk, wts)$estimate
+      )
+    )
+  ) %>% 
+  pivot_longer(
+    everything(), 
+    values_to = "SMD", 
+    names_to = c("variable", "Method"),
+    names_sep = "_"
+  )
+
+ggplot(
+  data = plot_df,
+  aes(x = abs(SMD), y = variable, group = Method, color = Method)
+) +
+  geom_line(orientation = "y") +
+  geom_point() + 
+  geom_vline(xintercept = 0.1, color = "black", size = 0.1) +
+  theme_minimal() +
+  scale_color_manual(values = c("grey85", "#00BFC4")) +
+  xlim(0, .3)
+
+_After updating the code chunks below, change `eval = TRUE` before knitting._
+
+Calculate the standardized mean differences with and without weights
+
+```{r, eval = TRUE}
+vars <- c("age", "sex", "wt71", "smokeyrs")
+smds <- df %>% 
+  summarise(
+    across(
+      # variables to calculate SMD for
+      all_of(vars), 
+      list(
+        unweighted = ~smd(.x, qsmk)$estimate, 
+        weighted = ~smd(.x, qsmk, w = .fitted)$estimate
+      )
+    )
+  )
+
+head(smds, 10)
+```
+
+Pivot `smds` so that it is in tidy format with the columns "SMD", "variable", and "Method".
+
+```{r, eval = FALSE}
+plot_df <- smds %>% 
+  pivot_longer(
+    everything(), 
+    values_to = "SMD", 
+    names_to = c("Variable", "Method"),
+    
+    # don't change this one. We really mean _!
+    names_sep = "_"
+  )
+```
+
+Create the Love Plot using ggplot
+
+```{r, eval = FALSE}
+ggplot(
+  data = plot_df,
+  aes(x = abs(SMD), y = Variable, group = Method, color = Method)
+) +
+  geom_line(orientation = "y") +
+  geom_point() + 
+  geom_vline(xintercept = 0.1, color = "black", size = 0.1) +
+  theme_minimal() +
+  scale_color_manual(values = c("grey85", "#00BFC4")) +
+  xlim(0, .3)
+```
+
+
+
+## Your Turn 2
+
+Create an unweighted ECDF for `smokeyrs` by those who quit smoking and those who did not.
+
+```{r, eval = FALSE}
+ggplot(df, aes(x = smokeyrs, group = qsmk, color = factor(qsmk))) +
+  stat_ecdf(geom = "step") +
+  scale_color_manual("Quit smoking", values = c("#5154B8", "#5DB854"),
+                     labels = c("Yes", "No")) + 
+  xlab("Smoking Years") + 
+  ylab("Proportion <= x") 
+```
+
+
+Create an weighted ECDF for `smokeyrs` by those who quit smoking and those who did not.
+
+```{r, eval = FALSE}
+ecdf_1 <- df %>%
+  filter(qsmk==1) %>%
+  arrange(w_ate) %>%
+  mutate(cum_pct = cumsum(w_ate) / sum(w_ate))
+
+ecdf_0 <- df %>%
+  filter(qsmk==0) %>%
+  arrange(w_ate) %>%
+  mutate(cum_pct = cumsum(w_ate) / sum(w_ate))
+
+ggplot(ecdf_1, aes(x = smokeyrs, y = cum_pct)) +
+  geom_line(color = "#5DB854") +
+  geom_line(data = ecdf_0, aes(x = smokeyrs, y = cum_pct), color = "#5154B8") + 
+  xlab("Smoking Years") + 
+  ylab("Proportion <= x") 
+```
+
